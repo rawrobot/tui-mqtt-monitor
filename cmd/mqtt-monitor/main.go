@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"sync"
@@ -50,22 +51,14 @@ func main() {
 
 	shutdownReason := waitForShutdownSignal(sigCh, uiDone)
 	performGracefulShutdown(cancel, ui, clients, messageHandlerDone, messagesCh, errorsCh, shutdownReason)
-
-	log.Info().Msg("Application shutdown complete")
 }
 
 func configureZerolog() {
-	// Set up console writer with custom time format
-	consoleWriter := zerolog.ConsoleWriter{
-		Out:        os.Stderr,
-		TimeFormat: "15:04:05.000", // Time only format to match UI
-		NoColor:    false,
-	}
-
-	// Set global logger
-	log.Logger = zerolog.New(consoleWriter).With().Timestamp().Logger()
-
-	// Set global log level (can be overridden by config later if needed)
+	// Disable console output when TUI is running
+	// Use a discard writer to suppress all console output
+	log.Logger = zerolog.New(io.Discard).With().Timestamp().Logger()
+	
+	// Set global log level
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 }
 
@@ -123,18 +116,9 @@ func configureZerologFromConfig(config *Config) {
 
 	zerolog.SetGlobalLevel(level)
 
-	// Configure console output
-	if config.Logging.Pretty {
-		consoleWriter := zerolog.ConsoleWriter{
-			Out:        os.Stderr,
-			TimeFormat: "15:04:05.000", // Time only format to match UI
-			NoColor:    false,
-		}
-		log.Logger = zerolog.New(consoleWriter).With().Timestamp().Logger()
-	} else {
-		// JSON format
-		log.Logger = zerolog.New(os.Stderr).With().Timestamp().Logger()
-	}
+	// Always use discard writer when TUI is running
+	// Only log to session files, not console
+	log.Logger = zerolog.New(io.Discard).With().Timestamp().Logger()
 }
 
 func initializeSessionLogger(config *Config) *SessionLogger {
@@ -287,46 +271,47 @@ func waitForShutdownSignal(sigCh chan os.Signal, uiDone chan error) string {
 func performGracefulShutdown(cancel context.CancelFunc,
 	ui *UI, clients []*MQTTClient, messageHandlerDone chan struct{},
 	messagesCh chan MonitorMessage, errorsCh chan error, shutdownReason string) {
-	log.Printf("Shutting down: %s", shutdownReason)
-	cancel()
-	ui.Stop()
+    
+    // Don't log to console during shutdown - it interferes with TUI
+    cancel()
+    ui.Stop()
 
-	disconnectClients(clients)
-	waitForMessageHandler(messageHandlerDone)
+    disconnectClients(clients)
+    waitForMessageHandler(messageHandlerDone)
 
-	close(messagesCh)
-	close(errorsCh)
+    close(messagesCh)
+    close(errorsCh)
 }
 
 func disconnectClients(clients []*MQTTClient) {
-	log.Info().Msg("Disconnecting MQTT clients...")
-	disconnectDone := make(chan struct{})
-	go func() {
-		defer close(disconnectDone)
-		var wg sync.WaitGroup
-		for _, client := range clients {
-			wg.Add(1)
-			go func(c *MQTTClient) {
-				defer wg.Done()
-				c.Disconnect()
-			}(client)
-		}
-		wg.Wait()
-	}()
+    // Remove console logging during disconnect
+    disconnectDone := make(chan struct{})
+    go func() {
+        defer close(disconnectDone)
+        var wg sync.WaitGroup
+        for _, client := range clients {
+            wg.Add(1)
+            go func(c *MQTTClient) {
+                defer wg.Done()
+                c.Disconnect()
+            }(client)
+        }
+        wg.Wait()
+    }()
 
-	select {
-	case <-disconnectDone:
-		log.Info().Msg("All clients disconnected")
-	case <-time.After(2 * time.Second):
-		log.Info().Msg("Disconnect timeout, forcing exit")
-	}
+    select {
+    case <-disconnectDone:
+        // Silent completion
+    case <-time.After(2 * time.Second):
+        // Silent timeout
+    }
 }
 
 func waitForMessageHandler(messageHandlerDone chan struct{}) {
-	select {
-	case <-messageHandlerDone:
-		log.Info().Msg("Message handler stopped")
-	case <-time.After(1 * time.Second):
-		log.Info().Msg("Message handler timeout")
-	}
+    select {
+    case <-messageHandlerDone:
+        // Silent completion
+    case <-time.After(1 * time.Second):
+        // Silent timeout
+    }
 }

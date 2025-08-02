@@ -1,0 +1,50 @@
+# MQTT Monitor Configuration
+
+[logging]
+level = "debug"  # or "debug" for more verbose output
+pretty = true
+output_dir = "./data"
+enable_session_log=true
+session_log_max_duration="1h"
+
+[display]
+topic_depth = 3 # show 3 last topics
+
+
+# Add multiple [[connection]] blocks for multiple brokers
+[[connection]]
+name = "local"
+server = "tcp://localhost:1883"
+user = ""
+password = ""
+tls_cert_file = ""
+tls_key_file = ""
+tls_ca_file = ""
+tls_insecure_skip_verify = false
+topics = ["sensors/test/data", ]
+client_id_base = "local"
+qos = 0
+
+[[connection]]
+name = "public"
+server = "tcp://test.mosquitto.org:1883"
+user = ""
+password = ""
+tls_cert_file = ""
+tls_key_file = ""
+tls_ca_file = ""
+tls_insecure_skip_verify = false
+topics = ["test/mqtt-monitor/data", ]
+client_id_base = "public"
+qos = 1
+
+
+# Example with TLS and authentication
+# [[connection]]
+# name = "Secure Broker"
+# server = "ssl://secure-mqtt.example.com:8883"
+# user = "your-username"
+# password = "your-password"
+# tls_cert_file = ""  # Leave empty for self-signed certs
+# topic = "devices/#"
+# client_id_base = "monitor-secure"
