@@ -38,7 +38,7 @@ func main() {
 		defer sessionLogger.Close()
 	}
 
-	ui := NewUI()
+	ui := NewUI(config.Display.Truncate) // Pass truncate setting to UI
 	messagesCh, errorsCh := make(chan MonitorMessage, 1000), make(chan error, 100)
 	clients := createMQTTClients(config, messagesCh, errorsCh, ctx)
 
@@ -57,7 +57,7 @@ func configureZerolog() {
 	// Disable console output when TUI is running
 	// Use a discard writer to suppress all console output
 	log.Logger = zerolog.New(io.Discard).With().Timestamp().Logger()
-	
+
 	// Set global log level
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 }
@@ -271,47 +271,47 @@ func waitForShutdownSignal(sigCh chan os.Signal, uiDone chan error) string {
 func performGracefulShutdown(cancel context.CancelFunc,
 	ui *UI, clients []*MQTTClient, messageHandlerDone chan struct{},
 	messagesCh chan MonitorMessage, errorsCh chan error, shutdownReason string) {
-    
-    // Don't log to console during shutdown - it interferes with TUI
-    cancel()
-    ui.Stop()
 
-    disconnectClients(clients)
-    waitForMessageHandler(messageHandlerDone)
+	// Don't log to console during shutdown - it interferes with TUI
+	cancel()
+	ui.Stop()
 
-    close(messagesCh)
-    close(errorsCh)
+	disconnectClients(clients)
+	waitForMessageHandler(messageHandlerDone)
+
+	close(messagesCh)
+	close(errorsCh)
 }
 
 func disconnectClients(clients []*MQTTClient) {
-    // Remove console logging during disconnect
-    disconnectDone := make(chan struct{})
-    go func() {
-        defer close(disconnectDone)
-        var wg sync.WaitGroup
-        for _, client := range clients {
-            wg.Add(1)
-            go func(c *MQTTClient) {
-                defer wg.Done()
-                c.Disconnect()
-            }(client)
-        }
-        wg.Wait()
-    }()
+	// Remove console logging during disconnect
+	disconnectDone := make(chan struct{})
+	go func() {
+		defer close(disconnectDone)
+		var wg sync.WaitGroup
+		for _, client := range clients {
+			wg.Add(1)
+			go func(c *MQTTClient) {
+				defer wg.Done()
+				c.Disconnect()
+			}(client)
+		}
+		wg.Wait()
+	}()
 
-    select {
-    case <-disconnectDone:
-        // Silent completion
-    case <-time.After(2 * time.Second):
-        // Silent timeout
-    }
+	select {
+	case <-disconnectDone:
+		// Silent completion
+	case <-time.After(2 * time.Second):
+		// Silent timeout
+	}
 }
 
 func waitForMessageHandler(messageHandlerDone chan struct{}) {
-    select {
-    case <-messageHandlerDone:
-        // Silent completion
-    case <-time.After(1 * time.Second):
-        // Silent timeout
-    }
+	select {
+	case <-messageHandlerDone:
+		// Silent completion
+	case <-time.After(1 * time.Second):
+		// Silent timeout
+	}
 }

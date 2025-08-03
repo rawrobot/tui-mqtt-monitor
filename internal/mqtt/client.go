@@ -297,7 +297,7 @@ func SanitizePayload(payload []byte) string {
 	content := string(payload)
 
 	// Limit message size to prevent memory issues
-	const maxMessageSize = 128
+	const maxMessageSize = 512 // Increased from 128 to allow longer messages
 	if len(content) > maxMessageSize {
 		content = content[:maxMessageSize] + "..."
 	}

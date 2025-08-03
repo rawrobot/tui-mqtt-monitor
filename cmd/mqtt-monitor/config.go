@@ -28,7 +28,8 @@ type Logging struct {
 }
 
 type DisplayConfig struct {
-	TopicDepth int `toml:"topic_depth"` // Number of topic levels to show from the end
+	TopicDepth int  `toml:"topic_depth"` // Number of topic levels to show from the end
+	Truncate   bool `toml:"truncate"`    // Whether to truncate long messages to fit terminal width
 }
 
 type ConnectionConfig struct {

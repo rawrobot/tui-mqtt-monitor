@@ -9,6 +9,8 @@ session_log_max_duration="1h"
 
 [display]
 topic_depth = 3 # show 3 last topics
+truncate = true # truncate long messages to fit terminal width
+
 
 
 # Add multiple [[connection]] blocks for multiple brokers

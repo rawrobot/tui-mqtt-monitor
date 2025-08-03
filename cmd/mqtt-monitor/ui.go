@@ -13,8 +13,8 @@ import (
 const (
 	// UI Layout Constants
 	DefaultTerminalWidth   = 80
-	MinimumDisplayWidth    = 20
-	MinimumPayloadWidth    = 5
+	MinimumDisplayWidth    = 40
+	MinimumPayloadWidth    = 10
 	AbsoluteMinimumPayload = 5
 
 	// UI Element Spacing
@@ -25,10 +25,10 @@ const (
 
 	// Text Truncation
 	EllipsisLength        = 3  // length of "..."
-	MaxTopicDisplayWidth  = 20 // maximum width for topic before truncation
-	MaxSourceDisplayWidth = 15 // maximum width for source before truncation
-	TruncatedTopicWidth   = 17 // topic width after truncation (20 - 3 for "...")
-	TruncatedSourceWidth  = 12 // source width after truncation (15 - 3 for "...")
+	MaxTopicDisplayWidth  = 25 // maximum width for topic before truncation
+	MaxSourceDisplayWidth = 12 // maximum width for source before truncation
+	TruncatedTopicWidth   = 22 // topic width after truncation (25 - 3 for "...")
+	TruncatedSourceWidth  = 9  // source width after truncation (12 - 3 for "...")
 
 	// Timestamp formatting
 	TimestampFormatWidth = 12 // "15:04:05.000" + space = 12 chars
@@ -45,9 +45,10 @@ type UI struct {
 	flex         *tview.Flex
 	messages     []MonitorMessage // Store raw messages for reformatting
 	maxMessages  int
+	truncate     bool // Whether to truncate messages to fit terminal width
 }
 
-func NewUI() *UI {
+func NewUI(truncate bool) *UI {
 	app := tview.NewApplication()
 
 	// Messages view (main area)
@@ -83,6 +84,7 @@ func NewUI() *UI {
 		flex:         flex,
 		messages:     make([]MonitorMessage, 0),
 		maxMessages:  MaxDisplayedMessages,
+		truncate:     truncate,
 	}
 }
 
@@ -105,8 +107,17 @@ func (ui *UI) Start(ctx context.Context) error {
 				ui.app.SetFocus(ui.messagesView)
 			}
 			return nil
+		case tcell.KeyCtrlL: // Add Ctrl+L to refresh display
+			ui.refreshAllMessages()
+			return nil
 		}
 		return event
+	})
+
+	// Handle resize events
+	ui.app.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
+		// This will be called before each draw, allowing us to handle resizes
+		return false // Return false to continue with normal drawing
 	})
 
 	// Monitor context for cancellation
@@ -174,76 +185,92 @@ func (ui *UI) UpdateStatus(status string) {
 }
 
 func (ui *UI) getTerminalWidth() int {
-	// Get width from the messages view
+	// Try multiple methods to get the width
+
+	// Method 1: Get from messages view inner rect
 	if ui.messagesView != nil {
 		_, _, width, _ := ui.messagesView.GetInnerRect()
-		if width > 0 {
-			// The inner rect already accounts for borders, so use it directly
-			if width < MinimumDisplayWidth {
-				width = MinimumDisplayWidth
-			}
+		if width > 10 { // Make sure we got a reasonable width
 			return width
+		}
+
+		// Method 2: Get from messages view rect (includes borders)
+		_, _, width, _ = ui.messagesView.GetRect()
+		if width > 10 {
+			return width - 4 // Subtract border width
 		}
 	}
 
-	return DefaultTerminalWidth
+	// Method 3: Get from flex container
+	if ui.flex != nil {
+		_, _, width, _ := ui.flex.GetRect()
+		if width > 10 {
+			return width - 4 // Subtract border width
+		}
+	}
+
+	// Fallback to a reasonable default
+	return 120 // Increase default since modern terminals are usually wider
 }
 
 func (ui *UI) formatMessageForDisplay(msg MonitorMessage) string {
+	// If truncation is disabled, use a simple format without width calculations
+	if !ui.truncate {
+		timestamp := msg.Timestamp.Format("15:04:05.000")
+		sourceColor := "cyan"
+		if msg.Color != "" {
+			sourceColor = msg.Color
+		}
+
+		return fmt.Sprintf("[yellow]%s[white] [%s]%s[white] [green]%s[white] %s",
+			timestamp,
+			sourceColor,
+			msg.Source,
+			msg.DisplayTopic,
+			msg.Payload)
+	}
+
+	// Original truncation logic for when truncate is enabled
 	maxWidth := ui.getTerminalWidth()
 
-	// Calculate space used by fixed elements
-	timestamp := msg.Timestamp.Format("15:04:05.000")
-	timestampWidth := len(timestamp) + SpaceBetweenElements
+	if maxWidth < 50 {
+		maxWidth = 120
+	}
 
-	sourceWidth := len(msg.Source) + SpaceBetweenElements
-	topicWidth := len(msg.DisplayTopic) + SpaceBetweenElements
-
-	fixedWidth := timestampWidth + sourceWidth + topicWidth
-	availableForPayload := maxWidth - fixedWidth
-
-	// Ensure minimum space for payload by truncating other elements if needed
 	displaySource := msg.Source
 	displayTopic := msg.DisplayTopic
 
-	if availableForPayload < MinimumPayloadWidth {
-		// Truncate topic first if it's too long
-		if len(msg.DisplayTopic) > MaxTopicDisplayWidth {
-			displayTopic = truncateText(msg.DisplayTopic, TruncatedTopicWidth)
-			topicWidth = MaxTopicDisplayWidth
-		}
-
-		// Truncate source if still not enough space
-		if len(msg.Source) > MaxSourceDisplayWidth && availableForPayload < MinimumPayloadWidth {
-			displaySource = truncateText(msg.Source, TruncatedSourceWidth)
-			sourceWidth = MaxSourceDisplayWidth
-		}
-
-		// Recalculate available space
-		fixedWidth = timestampWidth + sourceWidth + topicWidth
-		availableForPayload = maxWidth - fixedWidth
-
-		if availableForPayload < AbsoluteMinimumPayload {
-			availableForPayload = AbsoluteMinimumPayload
-		}
+	if len(displaySource) > MaxSourceDisplayWidth {
+		displaySource = truncateText(displaySource, TruncatedSourceWidth)
 	}
 
-	// Clean and truncate payload
-	cleanPayload := cleanPayloadText(msg.Payload)
-	truncatedPayload := truncateText(cleanPayload, availableForPayload)
+	if len(displayTopic) > MaxTopicDisplayWidth {
+		displayTopic = truncateText(displayTopic, TruncatedTopicWidth)
+	}
 
-	// Use the client's assigned color for the source name
-	sourceColor := "cyan" // default color
+	sourceColor := "cyan"
 	if msg.Color != "" {
 		sourceColor = msg.Color
 	}
 
-	return fmt.Sprintf("[yellow]%s[white] [%s]%s[white] [green]%s[white] [white]%s[white]",
+	timestamp := msg.Timestamp.Format("15:04:05.000")
+	prefix := fmt.Sprintf("[yellow]%s[white] [%s]%s[white] [green]%s[white] ",
 		timestamp,
 		sourceColor,
 		displaySource,
-		displayTopic,
-		truncatedPayload)
+		displayTopic)
+
+	visiblePrefixLength := getVisibleLength(prefix)
+	availableForPayload := maxWidth - visiblePrefixLength
+
+	if availableForPayload < MinimumPayloadWidth {
+		availableForPayload = MinimumPayloadWidth
+	}
+
+	cleanPayload := cleanPayloadText(msg.Payload)
+	truncatedPayload := truncateText(cleanPayload, availableForPayload)
+
+	return prefix + truncatedPayload
 }
 
 func (ui *UI) refreshAllMessages() {
@@ -284,4 +311,21 @@ func cleanPayloadText(payload string) string {
 	}
 
 	return strings.TrimSpace(cleaned)
+}
+
+func getVisibleLength(text string) int {
+	// Remove all tview color tags to get actual visible length
+	result := text
+	for {
+		start := strings.Index(result, "[")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(result[start:], "]")
+		if end == -1 {
+			break
+		}
+		result = result[:start] + result[start+end+1:]
+	}
+	return len(result)
 }
