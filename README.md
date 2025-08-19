@@ -41,6 +41,13 @@ A Go-based console application designed to monitor MQTT messages from multiple b
   - QoS levels
 - **Color assignment**: Automatic color assignment to distinguish between different brokers
 
+## Demo
+
+![Demo](./demo.gif)
+
+
+
+
 ## Configuration
 
 ### Basic Configuration Structure
